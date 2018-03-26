@@ -15,10 +15,10 @@ class TemplateManager(object):
             TemplateEnum.kRootTemplateName: rootTemplateName,
         }
 
-    def addRule(self, ruleName, toPathFormat, fromPathRegex):
+    def addRule(self, ruleName, toPathFormat, fromPathRegexPattern):
         self.__ruleMap[ruleName] = {
             RuleEnum.kToPathFormat: "{{:{}}}".format(toPathFormat),
-            RuleEnum.kFromTemplateName: fromPathRegex
+            RuleEnum.kFromTemplateName: fromPathRegexPattern
         }
 
     def path(self, templateName, fields):
@@ -30,10 +30,55 @@ class TemplateManager(object):
         pass
 
     def fields(self, templateName, path):
-        pass
+        template = self.__templateExpander(templateName)
+        elements = []
+
+        start = 0
+        end = 0
+
+        for regex in _TEMPLATE_REGEX.finditer(template):
+            key = regex.group(1)
+            end = regex.start()
+            element = template[start:end]
+
+            if not _TEMPLATE_REGEX.search(element):
+                elements.append(re.escape(element))
+
+            pattern = r'(?P<{}>{})'.format(key, self.__fromPath(key))
+            elements.append(pattern)
+
+            start = regex.start()
+            end = regex.end()
+
+        if end < len(template):
+            elements.append(re.escape(template[end:]))
+
+        regex = re.compile(r'^{}$'.format(''.join(elements)))
+        result = regex.search(path)
+
+        if result:
+            return result.groupdict()
+
+        return {}
 
     def paths(self, templateName, fields):
         pass
+
+    def __toPath(self, key):
+        pattern = "{}"
+
+        if key in self.__ruleMap:
+            pattern = self.__ruleMap[key][RuleEnum.kToPathFormat]
+
+        return pattern
+
+    def __fromPath(self, key):
+        pattern = r'.+'
+
+        if key in self.__ruleMap:
+            pattern = self.__ruleMap[key][RuleEnum.kFromTemplateName]
+
+        return pattern
 
     def __templateParser(self, template, fields):
         path = template
@@ -42,14 +87,8 @@ class TemplateManager(object):
             key = regex.group(1)
 
             if key in fields:
-                field = fields[key]
-
-                if key in self.__ruleMap:
-                    pattern = self.__ruleMap[key][RuleEnum.kToPathFormat]
-                    field = pattern.format(fields[key])
-                else:
-                    field = str(field)
-
+                pattern = self.__toPath(key)
+                field = pattern.format(fields[key])
                 path = path.replace(regex.group(0), field)
 
         return path
