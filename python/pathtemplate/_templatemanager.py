@@ -15,10 +15,19 @@ class TemplateManager(object):
             TemplateEnum.kRootTemplateName: rootTemplateName,
         }
 
-    def addRule(self, ruleName, toPathFormat, fromPathRegexPattern):
+    def addRule(self, ruleName, toPathFormat=None, fromPathRegexPattern=None, type=None):
+        formatPattern = "{}"
+        regexPattern = r'.+'
+
+        if toPathFormat:
+            formatPattern = "{{:{}}}".format(toPathFormat)
+        if fromPathRegexPattern:
+            regexPattern = fromPathRegexPattern
+
         self.__ruleMap[ruleName] = {
-            RuleEnum.kToPathFormat: "{{:{}}}".format(toPathFormat),
-            RuleEnum.kFromTemplateName: fromPathRegexPattern
+            RuleEnum.kToPathFormat: formatPattern,
+            RuleEnum.kFromTemplateName: regexPattern,
+            RuleEnum.kType: type
         }
 
     def path(self, templateName, fields):
@@ -27,7 +36,22 @@ class TemplateManager(object):
         return self.__templateParser(template, fields)
 
     def templateName(self, path):
-        pass
+        path = path.replace('\\', '/')
+        templateNames = []
+
+        for templateName in self.__templateMap:
+            fields = self.fields(templateName, path)
+
+            if self.path(templateName, fields) == path:
+                templateNames.append(templateName)
+
+        if not templateNames:
+            raise ValueError("There are no template names for the given path.")
+        elif len(templateNames) > 1:
+            templateNames.sort()
+            raise ValueError("There's more than one possible template names for the given path. The possible ones are {}".format(templateNames))
+
+        return templateNames[0]
 
     def fields(self, templateName, path):
         template = self.__templateExpander(templateName)
@@ -57,7 +81,8 @@ class TemplateManager(object):
         result = regex.search(path)
 
         if result:
-            return result.groupdict()
+            result = result.groupdict().iteritems()
+            return {k: self.__convertToType(k, v) for k, v in result}
 
         return {}
 
@@ -79,6 +104,15 @@ class TemplateManager(object):
             pattern = self.__ruleMap[key][RuleEnum.kFromTemplateName]
 
         return pattern
+
+    def __convertToType(self, key, value):
+        if key in self.__ruleMap:
+            type = self.__ruleMap[key][RuleEnum.kType]
+
+            if type is not None:
+                return type(value)
+
+        return value
 
     def __templateParser(self, template, fields):
         path = template
@@ -114,3 +148,4 @@ class TemplateEnum(object):
 class RuleEnum(object):
     kToPathFormat = 0
     kFromTemplateName = 1
+    kType = 2
