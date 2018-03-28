@@ -1,7 +1,10 @@
 import re
 import os
+import glob
 
 _TEMPLATE_REGEX = re.compile(r'\{[\t ]*(.+?)[\t ]*\}')
+_PATH_REGEX_PATTERN = r'.+'
+_PATH_FORMAT_PATTERN = "{}"
 
 
 class TemplateManager(object):
@@ -16,8 +19,8 @@ class TemplateManager(object):
         }
 
     def addRule(self, ruleName, toPathFormat=None, fromPathRegexPattern=None, type=None):
-        formatPattern = "{}"
-        regexPattern = r'.+'
+        formatPattern = _PATH_FORMAT_PATTERN
+        regexPattern = _PATH_REGEX_PATTERN
 
         if toPathFormat:
             formatPattern = "{{:{}}}".format(toPathFormat)
@@ -87,10 +90,46 @@ class TemplateManager(object):
         return {}
 
     def paths(self, templateName, fields):
-        pass
+        template = self.__templateExpander(templateName)
+        regexElements = []
+        globElements = []
+
+        start = 0
+        end = 0
+
+        for regex in _TEMPLATE_REGEX.finditer(template):
+            key = regex.group(1)
+            end = regex.start()
+            element = template[start:end]
+
+            if not _TEMPLATE_REGEX.search(element):
+                regexElements.append(re.escape(element))
+                globElements.append(element)
+
+            if key in fields:
+                regexPattern = re.escape(fields[key])
+            else:
+                regexPattern = self.__fromPath(key)
+
+            regexElements.append(regexPattern)
+            globElements.append('*')
+
+            start = regex.start()
+            end = regex.end()
+
+        if end < len(template):
+            regexElements.append(re.escape(template[end:]))
+            globElements.append(template[end:])
+
+        globPattern = ''.join(globElements)
+        validateRegex = re.compile(r'^{}$'.format(''.join(regexElements)))
+
+        for path in glob.iglob(globPattern):
+            if validateRegex.search(path):
+                yield path
 
     def __toPath(self, key):
-        pattern = "{}"
+        pattern = _PATH_FORMAT_PATTERN
 
         if key in self.__ruleMap:
             pattern = self.__ruleMap[key][RuleEnum.kToPathFormat]
@@ -98,7 +137,7 @@ class TemplateManager(object):
         return pattern
 
     def __fromPath(self, key):
-        pattern = r'.+'
+        pattern = _PATH_REGEX_PATTERN
 
         if key in self.__ruleMap:
             pattern = self.__ruleMap[key][RuleEnum.kFromTemplateName]
